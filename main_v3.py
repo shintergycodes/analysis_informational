@@ -23,6 +23,7 @@ from config import ExperimentConfig
 from io_dataset import DatasetIO
 from normalizer import Normalizer
 from manifest import ManifestWriter
+from summary_table import load_manifest, summarize, print_summary
 
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
@@ -347,6 +348,25 @@ def main() -> None:
     print(f"[MAIN_V3][OK] Manifest written to: {manifest_path}")
     print("[MAIN_V3][NEXT] Level 0C manifest is ready.")
     print("[MAIN_V3][NEXT] Next iteration: structural summary from manifest.")
+
+    # ------------------------------------------------------
+    # 6) Level 0D — structural summary from manifest
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 0D: structural summary from manifest...")
+
+        rows = load_manifest(manifest_path)
+        summary = summarize(rows)
+
+        print("[MAIN_V3][OK] Structural summary from manifest:")
+        print_summary(summary)
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Structural summary failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 0D summary is ready.")    
     
 if __name__ == "__main__":
     main()
