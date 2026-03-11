@@ -32,7 +32,7 @@ class ExperimentConfig:
     # Calendar / identifiers
     dates: List[str] = field(default_factory=list)
     labs: List[str] = field(default_factory=list)
-    default_shift: str = "M"
+    default_shift: Optional[str] = None
 
     # Optional canonical naming / renaming (raw_name -> canonical_name)
     rename_map: Dict[str, str] = field(default_factory=dict)
@@ -63,12 +63,27 @@ class ExperimentConfig:
         if self.group_mode not in ("declared_ctrl_exp", "by_date", "external_ctrl_exp"):
             raise ValueError(f"Invalid group_mode: {self.group_mode}")
 
+        # Dates 
+        if not isinstance(self.dates, list):
+            raise TypeError("dates must be a list[str]")
+        for d in self.dates:
+            if not isinstance(d, str) or not d.strip():
+                raise ValueError("dates must contain non-empty strings")
+
         # Labs
         if not isinstance(self.labs, list):
             raise TypeError("labs must be a list[str]")
         for lab in self.labs:
             if not isinstance(lab, str) or not lab.strip():
                 raise ValueError("labs must contain non-empty strings")
+        
+
+
+        # Shift (optional, legacy field)
+        if self.default_shift is not None:
+            if not isinstance(self.default_shift, str) or not self.default_shift.strip():
+                raise ValueError("default_shift must be None or a non-empty string")
+
 
         # Defaults
         if self.default_label not in ("LB", "MEI", "UNK"):
