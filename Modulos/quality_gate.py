@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-quality_gate.py (Level 1A -> Gate to Level 2)
+quality_gate.py (Quality -> Gate to next analytical level)
 
 Responsibility:
 - Consume the per-measurement scores CSV produced by QualityRunner
@@ -63,7 +63,8 @@ class QualityGate:
       - mid
       - score_medicion
 
-    Additional columns are preserved (fecha, lab, jornada, etiqueta, parquet_path, etc.).
+    Additional columns are preserved (fecha, lab, etiqueta, parquet_path, etc.).
+    Legacy fields such as turno/jornada are optional and only kept if present.
     """
 
     def __init__(self, policy: Optional[GatePolicy] = None) -> None:
@@ -152,8 +153,10 @@ class QualityGate:
         preferred_cols: List[str] = [
             "mid",
             "score_medicion",
+            "score_mean_valid_channels",
             "threshold_pass",
             "pass_to_level2",
+            "status",
             "fecha",
             "lab",
             "turno",
@@ -164,6 +167,7 @@ class QualityGate:
             "parquet_path",
             "n_channels_total",
             "n_channels_used",
+            "n_channels_invalid",
             "min_channels_required",
         ]
         keep_cols = [c for c in preferred_cols if c in df.columns]
@@ -171,24 +175,36 @@ class QualityGate:
         queue = df.loc[df["pass_to_level2"], keep_cols].copy()
 
         # Stable sorting when metadata exists
-        sort_cols: Sequence[str] = [c for c in ["fecha", "lab", "turno", "jornada", "mid"] if c in queue.columns]
+        sort_cols: Sequence[str] = [c for c in ["fecha", "lab", "mid", "turno", "jornada"] if c in queue.columns]
         if sort_cols:
             queue = queue.sort_values(list(sort_cols))
         else:
             queue = queue.sort_values(["mid"]) if "mid" in queue.columns else queue
 
         queue.to_csv(informational_queue_csv, index=False, encoding="utf-8")
-
+        #
         if verbose:
             n = int(df.shape[0])
             n_pass = int(df["pass_to_level2"].sum()) if n else 0
             n_fail = n - n_pass
             print(f"[QualityGate] Threshold: {thr:.2f} | Files scored: {n} | PASS: {n_pass} | FAIL: {n_fail}")
+
+            if "lab" in df.columns and n > 0:
+                lab_summary = (
+                    df.groupby("lab", dropna=False)["pass_to_level2"]
+                    .agg(["count", "sum"])
+                    .reset_index()
+                    .rename(columns={"count": "n_files", "sum": "n_pass"})
+                )
+                lab_summary["n_fail"] = lab_summary["n_files"] - lab_summary["n_pass"]
+                print("[QualityGate] PASS/FAIL by lab:")
+                for r in lab_summary.itertuples(index=False):
+                    print(f"  - {r.lab}: files={int(r.n_files)} | pass={int(r.n_pass)} | fail={int(r.n_fail)}")
+
             print(f"[QualityGate] gate_csv: {gate_csv}")
             print(f"[QualityGate] pass_mids: {pass_mids_csv}")
             print(f"[QualityGate] fail_mids: {fail_mids_csv}")
             print(f"[QualityGate] informational_queue: {informational_queue_csv}")
-
         return QualityGateArtifacts(
             output_dir=output_dir,
             gate_csv=gate_csv,

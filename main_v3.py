@@ -39,7 +39,9 @@ from analysis_ready_schema_table import build_analysis_ready_schema_tables
 # QUALITY LASERS  (from Modulos Python)
 # ==========================================================
 from quality_config import QualityConfig
-
+from quality_runner import QualityRunner
+from quality_gate import QualityGate, GatePolicy
+from quality_compare import QualityCompareRunner, QualityCompareConfig
 
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
@@ -575,7 +577,106 @@ def main() -> None:
 
     print("[MAIN_V3][NEXT] Level 1F analysis-ready schema validation is ready.")    
     
-    
+    # ------------------------------------------------------
+    # 12) Level 2A — quality run
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 2A: quality run...")
+
+        quality_cfg = QualityConfig()
+        quality_cfg.validate()
+
+        quality_runner = QualityRunner(
+            root=cfg.target_root,
+            config=quality_cfg,
+            analysis_ready_dir_name="Analysis Ready",
+            default_output_dir="Reports/Level1_Quality",
+        )
+
+        quality_artifacts = quality_runner.run(
+            catalog_df=catalog_df2,
+            schema_by_file_csv=cfg.target_root / "analysis_ready_schema_by_file.csv",
+            write=True,
+            verbose=True,
+        )
+
+        print(f"[MAIN_V3][OK] resultados_luces.csv written to: {quality_artifacts.resultados_luces_csv}")
+        print(f"[MAIN_V3][OK] datos_completos_luces.csv written to: {quality_artifacts.datos_completos_luces_csv}")
+        print(f"[MAIN_V3][OK] quality_scores_by_file.csv written to: {quality_artifacts.scores_by_file_csv}")
+        print(f"[MAIN_V3][OK] quality_summary_by_lab.csv written to: {quality_artifacts.summary_by_lab_csv}")
+        print(f"[MAIN_V3][OK] quality_summary_by_date_lab.csv written to: {quality_artifacts.summary_by_date_lab_csv}")
+        print(f"[MAIN_V3][OK] quality_summary_by_laser.csv written to: {quality_artifacts.summary_by_laser_csv}")
+        print(f"[MAIN_V3][OK] resumen_ejecutivo.txt written to: {quality_artifacts.resumen_ejecutivo_txt}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Quality run failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 2A quality run is ready.")
+
+    # ------------------------------------------------------
+    # 13) Level 2B — quality gate
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 2B: quality gate...")
+
+        gate_policy = GatePolicy(
+            pass_score=quality_cfg.thresholds.pass_to_informational,
+            overwrite=True,
+            require_min_channels_if_available=True,
+        )
+
+        quality_gate = QualityGate(policy=gate_policy)
+        gate_artifacts = quality_gate.run(
+            scores_by_file_csv=quality_artifacts.scores_by_file_csv,
+            output_dir=cfg.target_root / "Reports" / "Level1_Quality",
+            verbose=True,
+        )
+
+        print(f"[MAIN_V3][OK] quality_gate.csv written to: {gate_artifacts.gate_csv}")
+        print(f"[MAIN_V3][OK] pass_mids.csv written to: {gate_artifacts.pass_mids_csv}")
+        print(f"[MAIN_V3][OK] fail_mids.csv written to: {gate_artifacts.fail_mids_csv}")
+        print(f"[MAIN_V3][OK] informational_queue.csv written to: {gate_artifacts.informational_queue_csv}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Quality gate failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 2B quality gate is ready.")
+
+    # ------------------------------------------------------
+    # 14) Level 2C — quality compare / visual reports
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 2C: quality compare...")
+
+        compare_cfg = QualityCompareConfig(
+            max_points=3000,
+            dpi=150,
+            output_dir_name="Compare",
+        )
+
+        quality_compare = QualityCompareRunner(config=compare_cfg)
+        compare_artifacts = quality_compare.run(
+            resultados_csv=quality_artifacts.resultados_luces_csv,
+            schema_by_file_csv=cfg.target_root / "analysis_ready_schema_by_file.csv",
+            output_dir=cfg.target_root / "Reports" / "Level1_Quality" / "Compare",
+            verbose=True,
+        )
+
+        print(f"[MAIN_V3][OK] global compare dir: {compare_artifacts.global_dir}")
+        print(f"[MAIN_V3][OK] per-measurement dir: {compare_artifacts.per_measurement_dir}")
+        print(f"[MAIN_V3][OK] per-laser dir: {compare_artifacts.per_laser_dir}")
+        print(f"[MAIN_V3][OK] per-lab dir: {compare_artifacts.per_lab_dir}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Quality compare failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 2C quality compare is ready.")    
     
 if __name__ == "__main__":
     main()
