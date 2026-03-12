@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import re
 import sys
 from pathlib import Path
@@ -17,13 +16,23 @@ if not MODULES_DIR.exists():
 sys.path.insert(0, str(MODULES_DIR))
 
 # ==========================================================
-# EXP SEPTUP (from Modulos Python)
+# EXPERIMENTAL SETUP (FROM Modulos)
 # ==========================================================
 from config import ExperimentConfig
 from io_dataset import DatasetIO
 from normalizer import Normalizer
 from manifest import ManifestWriter
 from summary_table import load_manifest, summarize, print_summary
+
+
+# ==========================================================
+# Analysis-Ready Data Preparation (from Modulos Python)
+# ==========================================================
+from analysis_ready_prep import AnalysisCatalogBuilder, CSVDialectInspector
+from column_role_detection import ColumnRoleDetector, ColumnRoleSpec
+from measurement_time_bounds import MeasurementTimeBounds
+from analysis_table_builder import AnalysisTableBuilder, TableBuildPolicy
+from analysis_ready_schema_table import build_analysis_ready_schema_tables
 
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
@@ -367,6 +376,197 @@ def main() -> None:
         return
 
     print("[MAIN_V3][NEXT] Level 0D summary is ready.")    
+
+    # ------------------------------------------------------
+    # 7) Level 1A — Analysis-Ready catalog + CSV dialect inspection
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 1A: analysis-ready catalog build...")
+
+        builder = AnalysisCatalogBuilder(cfg)
+        catalog_df = builder.build(resolve_mode="compat", write=True)
+
+        catalog_path = cfg.target_root / "analysis_catalog.csv"
+
+        print(f"[MAIN_V3][OK] analysis_catalog.csv written to: {catalog_path}")
+        print(f"[MAIN_V3][OK] Catalog rows: {len(catalog_df)}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Analysis-ready catalog build failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    try:
+        print("[MAIN_V3] Running Level 1B: CSV dialect inspection...")
+
+        inspector = CSVDialectInspector(cfg)
+        catalog_df2, report = inspector.run(
+            catalog_df,
+            inspect_rows=200,
+            write=True,
+        )
+
+        report_path = cfg.target_root / "dialect_report.json"
+
+        print(f"[MAIN_V3][OK] dialect_report.json written to: {report_path}")
+
+        ok_count = (
+            int(catalog_df2["csv_dialect_ok"].sum())
+            if "csv_dialect_ok" in catalog_df2.columns
+            else 0
+        )
+        exists_count = (
+            int(catalog_df2["raw_exists"].sum())
+            if "raw_exists" in catalog_df2.columns
+            else 0
+        )
+
+        print(f"[MAIN_V3][OK] raw_exists: {exists_count}/{len(catalog_df2)}")
+        print(f"[MAIN_V3][OK] csv_dialect_ok: {ok_count}/{len(catalog_df2)}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] CSV dialect inspection failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 1A/1B analysis-ready catalog is ready.")    
+
+    # ------------------------------------------------------
+    # 8) Level 1C — column role detection
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 1C: column role detection...")
+
+        role_spec = ColumnRoleSpec(
+            time_system_candidates=[
+                "Time",
+                "Hora",
+                "System_Time",
+                "t_sys",
+            ],
+            time_relative_candidates=[
+                "Time 2",
+                "Tiempo_Relativo",
+                "Relative_Time",
+                "t_rel",
+            ],
+            channel_name_pool=[
+                "Laser_1",
+                "Laser_2",
+                "Laser_3",
+                "Laser_4",
+                "Laser_5",
+                "Laser_6",
+            ],
+            detect_rows=80,
+            min_parse_ratio_time=0.80,
+            min_parse_ratio_numeric=0.80,
+            require_two_time_cols=True,
+        )
+
+        detector = ColumnRoleDetector(cfg)
+        artifacts = detector.run(
+            catalog_df2,
+            role_spec,
+            write=True,
+            role_map_name="column_roles.json",
+            default_delimiter=",",
+        )
+
+        print(f"[MAIN_V3][OK] column_roles.json written to: {artifacts.role_map_path}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Column role detection failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 1C column role detection is ready.")    
+
+    # ------------------------------------------------------
+    # 9) Level 1D — measurement time bounds
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 1D: measurement time bounds...")
+
+        bounds_builder = MeasurementTimeBounds(cfg)
+        bounds_artifacts = bounds_builder.run(
+            catalog_df2,
+            roles_path=cfg.target_root / "column_roles.json",
+            write=True,
+            output_name="measurement_time_bounds.json",
+            default_delimiter=",",
+        )
+
+        print(f"[MAIN_V3][OK] measurement_time_bounds.json written to: {bounds_artifacts.time_bounds_path}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Measurement time bounds failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+    print("[MAIN_V3][NEXT] Level 1D measurement time bounds is ready.")
+    
+    
+    # ------------------------------------------------------
+    # 10) Level 1E — analysis table build
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 1E: analysis table build...")
+
+        table_builder = AnalysisTableBuilder(cfg.target_root)
+        table_policy = TableBuildPolicy(
+            sentinels=(-111.0,),
+            default_delimiter=",",
+            encoding_candidates=("utf-8-sig", "utf-8", "latin-1"),
+            output_layout="fecha_lab",
+            filename_strategy="mid",
+            overwrite=True,
+        )
+
+        table_artifacts = table_builder.run(
+            catalog_df2,
+            column_roles_path=cfg.target_root / "column_roles.json",
+            policy=table_policy,
+            write_actions=True,
+        )
+
+        print(f"[MAIN_V3][OK] Analysis Ready root: {table_artifacts.output_root}")
+        print(f"[MAIN_V3][OK] table_actions.jsonl written to: {table_artifacts.actions_path}")
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Analysis table build failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 1E analysis table build is ready.")    
+    
+    # ------------------------------------------------------
+    # 11) Level 1F — analysis-ready schema validation tables
+    # ------------------------------------------------------
+    try:
+        print("[MAIN_V3] Running Level 1F: analysis-ready schema validation...")
+
+        build_analysis_ready_schema_tables(
+            catalog_df=catalog_df2,
+            column_roles_path=cfg.target_root / "column_roles.json",
+            analysis_ready_root=cfg.target_root / "Analysis Ready",
+            output_root=cfg.target_root,
+        )
+
+        print(
+            "[MAIN_V3][OK] analysis_ready_schema_by_file.csv written to: "
+            f"{cfg.target_root / 'analysis_ready_schema_by_file.csv'}"
+        )
+        print(
+            "[MAIN_V3][OK] analysis_ready_schema_table.csv written to: "
+            f"{cfg.target_root / 'analysis_ready_schema_table.csv'}"
+        )
+
+    except Exception as e:
+        print("[MAIN_V3][ERROR] Analysis-ready schema validation failed.")
+        print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+        return
+
+    print("[MAIN_V3][NEXT] Level 1F analysis-ready schema validation is ready.")    
     
 if __name__ == "__main__":
     main()
