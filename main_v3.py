@@ -34,6 +34,13 @@ from measurement_time_bounds import MeasurementTimeBounds
 from analysis_table_builder import AnalysisTableBuilder, TableBuildPolicy
 from analysis_ready_schema_table import build_analysis_ready_schema_tables
 
+
+# ==========================================================
+# QUALITY LASERS  (from Modulos Python)
+# ==========================================================
+from quality_config import QualityConfig
+
+
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
 # ==========================================================
@@ -567,6 +574,8 @@ def main() -> None:
         return
 
     print("[MAIN_V3][NEXT] Level 1F analysis-ready schema validation is ready.")    
+    
+    
     
 if __name__ == "__main__":
     main()
