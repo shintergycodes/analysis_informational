@@ -43,6 +43,34 @@ from quality_runner import QualityRunner
 from quality_gate import QualityGate, GatePolicy
 from quality_compare import QualityCompareRunner, QualityCompareConfig
 
+
+
+from correlation_lasers_config import CorrelationLasersConfig
+from correlation_lasers_runner import CorrelationLasersRunner
+from correlation_lasers_compare import CorrelationLasersCompare
+
+
+# ==========================================================
+# CORRELATION LASERS PARAMETERS (EDIT HERE)
+# ==========================================================
+CORRELATION_LASERS_ENABLED = True
+
+CORRELATION_LASERS_METRICS = (
+    "calidad_general",
+    "snr_db",
+    "coef_variacion",
+)
+
+CORRELATION_LASERS_CORR_METHOD = "pearson"
+CORRELATION_LASERS_AGGREGATE_MODE = "mean"
+
+CORRELATION_LASERS_RUNNER_ENABLED = True
+CORRELATION_LASERS_WRITE = True
+CORRELATION_LASERS_VERBOSE = True
+
+CORRELATION_LASERS_COMPARE_ENABLED = True
+CORRELATION_LASERS_COMPARE_WRITE = True
+CORRELATION_LASERS_COMPARE_VERBOSE = True
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
 # ==========================================================
@@ -677,6 +705,124 @@ def main() -> None:
         return
 
     print("[MAIN_V3][NEXT] Level 2C quality compare is ready.")    
-    
+
+
+    # ------------------------------------------------------
+    # 15) Level 3A — correlation lasers config build
+    # ------------------------------------------------------
+    if CORRELATION_LASERS_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 3A: correlation lasers config build...")
+
+            correlation_cfg = CorrelationLasersConfig.from_metrics(
+                metrics=CORRELATION_LASERS_METRICS,
+                corr_method=CORRELATION_LASERS_CORR_METHOD,
+                aggregate_mode=CORRELATION_LASERS_AGGREGATE_MODE,
+                require_all_6_lasers=True,
+                min_measurements_per_block=3,
+                min_valid_lasers_per_measurement=4,
+            )
+
+            correlation_cfg_path = (
+                cfg.target_root / "correlation_lasers_config.json"
+            )
+            correlation_cfg.write_json(correlation_cfg_path)
+
+            s = correlation_cfg.summary()
+
+            print(f"[MAIN_V3][OK] correlation_lasers_config.json written to: {correlation_cfg_path}")
+            print(f"[MAIN_V3][OK] block_name        : {s['block_name']}")
+            print(f"[MAIN_V3][OK] version           : {s['version']}")
+            print(f"[MAIN_V3][OK] metrics           : {s['metrics']}")
+            print(f"[MAIN_V3][OK] corr_method       : {s['corr_method']}")
+            print(f"[MAIN_V3][OK] aggregate_mode    : {s['aggregate_mode']}")
+            print(f"[MAIN_V3][OK] expected_lasers   : {s['expected_lasers_count']}")
+            print(f"[MAIN_V3][OK] require_all_6     : {s['require_all_6_lasers']}")
+            print(f"[MAIN_V3][OK] min_meas_block    : {s['min_measurements_per_block']}")
+            print(f"[MAIN_V3][OK] min_valid_lasers  : {s['min_valid_lasers_per_measurement']}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Correlation Lasers config build failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 3A correlation lasers config is ready.")
+
+    # ------------------------------------------------------
+    # 16) Level 3B — correlation lasers run
+    # ------------------------------------------------------
+    if CORRELATION_LASERS_RUNNER_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 3B: correlation lasers run...")
+
+            correlation_runner = CorrelationLasersRunner(
+                root=cfg.target_root,
+                config=correlation_cfg,
+            )
+
+            correlation_artifacts = correlation_runner.run(
+                resultados_csv=quality_artifacts.resultados_luces_csv,
+                quality_scores_by_file_csv=quality_artifacts.scores_by_file_csv,
+                output_dir=cfg.target_root / "Reports" / "Level3_Correlation_Lasers",
+                write=CORRELATION_LASERS_WRITE,
+                verbose=CORRELATION_LASERS_VERBOSE,
+            )
+
+            print(f"[MAIN_V3][OK] correlation_lasers_base.csv written to: {correlation_artifacts.base_csv}")
+            print(f"[MAIN_V3][OK] laser_profiles_by_measurement.csv written to: {correlation_artifacts.profiles_by_measurement_csv}")
+            print(f"[MAIN_V3][OK] laser_profile_summary_by_date_lab.csv written to: {correlation_artifacts.summary_by_date_lab_csv}")
+            print(f"[MAIN_V3][OK] laser_correlation_by_date_lab.csv written to: {correlation_artifacts.correlation_by_date_lab_csv}")
+            print(f"[MAIN_V3][OK] laser_pairwise_dates_by_lab.csv written to: {correlation_artifacts.pairwise_dates_by_lab_csv}")
+            print(f"[MAIN_V3][OK] laser_pairwise_labs_by_date.csv written to: {correlation_artifacts.pairwise_labs_by_date_csv}")
+
+            if correlation_artifacts.run_metadata_json is not None:
+                print(f"[MAIN_V3][OK] correlation_lasers_run_metadata.json written to: {correlation_artifacts.run_metadata_json}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Correlation Lasers run failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 3B correlation lasers run is ready.")        
+
+    # ------------------------------------------------------
+    # 17) Level 3C — correlation lasers compare
+    # ------------------------------------------------------
+    if CORRELATION_LASERS_COMPARE_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 3C: correlation lasers compare...")
+
+            correlation_compare = CorrelationLasersCompare(
+                config=correlation_cfg,
+            )
+
+            correlation_compare_artifacts = correlation_compare.run(
+                summary_by_date_lab_csv=correlation_artifacts.summary_by_date_lab_csv,
+                correlation_by_date_lab_csv=correlation_artifacts.correlation_by_date_lab_csv,
+                pairwise_dates_by_lab_csv=correlation_artifacts.pairwise_dates_by_lab_csv,
+                pairwise_labs_by_date_csv=correlation_artifacts.pairwise_labs_by_date_csv,
+                profiles_by_measurement_csv=correlation_artifacts.profiles_by_measurement_csv,
+                output_dir=cfg.target_root / "Reports" / "Level3_Correlation_Lasers" / "Compare",
+                write=CORRELATION_LASERS_COMPARE_WRITE,
+                verbose=CORRELATION_LASERS_COMPARE_VERBOSE,
+            )
+
+            print(f"[MAIN_V3][OK] correlation global dir: {correlation_compare_artifacts.global_dir}")
+            print(f"[MAIN_V3][OK] correlation per-date-lab dir: {correlation_compare_artifacts.per_date_lab_dir}")
+            print(f"[MAIN_V3][OK] correlation per-laser dir: {correlation_compare_artifacts.per_laser_dir}")
+            print(f"[MAIN_V3][OK] correlation per-lab dir: {correlation_compare_artifacts.per_lab_dir}")
+            print(f"[MAIN_V3][OK] global_summary.csv written to: {correlation_compare_artifacts.global_summary_csv}")
+            print(f"[MAIN_V3][OK] resumen_global.txt written to: {correlation_compare_artifacts.global_summary_txt}")
+            print(f"[MAIN_V3][OK] pairwise_dates_summary.csv written to: {correlation_compare_artifacts.pairwise_dates_summary_csv}")
+            print(f"[MAIN_V3][OK] pairwise_labs_summary.csv written to: {correlation_compare_artifacts.pairwise_labs_summary_csv}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Correlation Lasers compare failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 3C correlation lasers compare is ready.")            
+            
+            
 if __name__ == "__main__":
     main()
