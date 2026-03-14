@@ -26,7 +26,7 @@ from summary_table import load_manifest, summarize, print_summary
 
 
 # ==========================================================
-# Analysis-Ready Data Preparation (from Modulos Python)
+# Analysis-Ready Data Preparation (from Modulos )
 # ==========================================================
 from analysis_ready_prep import AnalysisCatalogBuilder, CSVDialectInspector
 from column_role_detection import ColumnRoleDetector, ColumnRoleSpec
@@ -36,7 +36,7 @@ from analysis_ready_schema_table import build_analysis_ready_schema_tables
 
 
 # ==========================================================
-# QUALITY LASERS  (from Modulos Python)
+# QUALITY LASERS  (from Modulos )
 # ==========================================================
 from quality_config import QualityConfig
 from quality_runner import QualityRunner
@@ -44,11 +44,31 @@ from quality_gate import QualityGate, GatePolicy
 from quality_compare import QualityCompareRunner, QualityCompareConfig
 
 
+# ==========================================================
+# CORRELATION LASERS  (from Modulos )
+# ==========================================================
 
 from correlation_lasers_config import CorrelationLasersConfig
 from correlation_lasers_runner import CorrelationLasersRunner
 from correlation_lasers_compare import CorrelationLasersCompare
 
+
+
+from informational_config import (
+    InformationalConfig,
+    InformationalConfigError,
+)
+
+from informational_bins import (
+    BinsPolicy,
+    build_bins_spec_from_config,
+)
+
+from bins_health_report import (
+    BinsHealthPolicy,
+    evaluate_bins_health,
+    print_bins_health_report,
+)
 
 # ==========================================================
 # CORRELATION LASERS PARAMETERS (EDIT HERE)
@@ -71,6 +91,38 @@ CORRELATION_LASERS_VERBOSE = True
 CORRELATION_LASERS_COMPARE_ENABLED = True
 CORRELATION_LASERS_COMPARE_WRITE = True
 CORRELATION_LASERS_COMPARE_VERBOSE = True
+
+
+
+# ==========================================================
+# INFORMATIONAL ANALYSIS PARAMETERS (EDIT HERE)
+# ==========================================================
+INFORMATIONAL_CONFIG_ENABLED = True
+
+INFORMATIONAL_LEVEL4_FOLDER_NAME = "Level4_Informational"
+INFORMATIONAL_METRIC_PRIMARY = "JS"
+INFORMATIONAL_ALPHA = 0.05
+INFORMATIONAL_CORRECTION = "none"
+INFORMATIONAL_COUPLING_LAGS = (0, 1)
+
+INFORMATIONAL_CONFIG_WRITE = True
+INFORMATIONAL_CONFIG_VERBOSE = True
+
+# ==========================================================
+# INFORMATIONAL BINS PARAMETERS (EDIT HERE)
+# ==========================================================
+INFORMATIONAL_BINS_ENABLED = True
+INFORMATIONAL_BINS_VERBOSE = True
+
+# ==========================================================
+# INFORMATIONAL BINS HEALTH PARAMETERS (EDIT HERE)
+# ==========================================================
+INFORMATIONAL_BINS_HEALTH_ENABLED = True
+INFORMATIONAL_BINS_HEALTH_VERBOSE = True
+INFORMATIONAL_BINS_HEALTH_SCAN_PARQUETS = True
+INFORMATIONAL_BINS_HEALTH_SAMPLE_N = 30
+INFORMATIONAL_BINS_HEALTH_ROW_CAP = 200_000
+
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
 # ==========================================================
@@ -822,6 +874,112 @@ def main() -> None:
             return
 
         print("[MAIN_V3][NEXT] Level 3C correlation lasers compare is ready.")            
+
+    # ------------------------------------------------------
+    # 18) Level 4A — informational config build
+    # ------------------------------------------------------
+    if INFORMATIONAL_CONFIG_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4A: informational config build...")
+
+            informational_cfg = InformationalConfig.from_experiment(
+                cfg=cfg,
+                quality_scores_by_file_path=quality_artifacts.scores_by_file_csv,
+                resultados_luces_path=quality_artifacts.resultados_luces_csv,
+                level4_folder_name=INFORMATIONAL_LEVEL4_FOLDER_NAME,
+                metric_primary=INFORMATIONAL_METRIC_PRIMARY,
+                alpha=INFORMATIONAL_ALPHA,
+                correction=INFORMATIONAL_CORRECTION,
+                coupling_lags_samples=INFORMATIONAL_COUPLING_LAGS,
+            )
+
+            preflight = informational_cfg.preflight(
+                strict=True,
+                parquet_sample_n=25,
+                verbose=INFORMATIONAL_CONFIG_VERBOSE,
+            )
+
+            informational_paths = informational_cfg.get_level4_paths()
+            informational_config_path = informational_paths["level4_config_json"]
+
+            if INFORMATIONAL_CONFIG_WRITE:
+                informational_cfg.write_json(informational_config_path)
+
+            print(f"[MAIN_V3][OK] level4_config.json written to: {informational_config_path}")
+            print(f"[MAIN_V3][OK] informational mode     : {informational_cfg.mode}")
+            print(f"[MAIN_V3][OK] lasers detected        : {len(informational_cfg.lasers)}")
+            print(f"[MAIN_V3][OK] lasers source          : {informational_cfg.lasers_source}")
+            print(f"[MAIN_V3][OK] bins reference group   : {informational_cfg.bins_reference_group}")
+            print(f"[MAIN_V3][OK] preflight ok           : {preflight.ok}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Informational config build failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4A informational config is ready.")           
+    # ------------------------------------------------------
+    # 19) Level 4B — informational bins build
+    # ------------------------------------------------------
+    if INFORMATIONAL_BINS_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4B: informational bins build...")
+
+            bins_policy = BinsPolicy()
+
+            bins_artifacts = build_bins_spec_from_config(
+                informational_cfg,
+                policy=bins_policy,
+                reference_dates=None,
+                parquet_engine="auto",
+            )
+
+            print(f"[MAIN_V3][OK] bins_spec.json written to: {bins_artifacts.bins_spec_json}")
+            print(f"[MAIN_V3][OK] bins_summary.csv written to: {bins_artifacts.bins_summary_csv}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Informational bins build failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4B informational bins is ready.")
+        
+    # ------------------------------------------------------
+    # 20) Level 4C — informational bins health
+    # ------------------------------------------------------
+    if INFORMATIONAL_BINS_HEALTH_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4C: informational bins health...")
+
+            bins_health_policy = BinsHealthPolicy(
+                scan_parquets=INFORMATIONAL_BINS_HEALTH_SCAN_PARQUETS,
+                parquet_sample_n=INFORMATIONAL_BINS_HEALTH_SAMPLE_N,
+                per_parquet_row_cap=INFORMATIONAL_BINS_HEALTH_ROW_CAP,
+            )
+
+            bins_health_dir = cfg.target_root / "Reports" / INFORMATIONAL_LEVEL4_FOLDER_NAME / "Bins_Health"
+
+            bins_health_report = evaluate_bins_health(
+                bins_spec_json=bins_artifacts.bins_spec_json,
+                quality_scores_by_file_csv=quality_artifacts.scores_by_file_csv,
+                out_dir=bins_health_dir,
+                policy=bins_health_policy,
+            )
+
+            if INFORMATIONAL_BINS_HEALTH_VERBOSE:
+                print_bins_health_report(bins_health_report)
+
+            print(f"[MAIN_V3][OK] bins_health_report.json written to: {bins_health_dir / 'bins_health_report.json'}")
+            print(f"[MAIN_V3][OK] bins_health_per_laser.csv written to: {bins_health_dir / 'bins_health_per_laser.csv'}")
+            print(f"[MAIN_V3][OK] bins health status: {bins_health_report.get('status')}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Informational bins health failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4C informational bins health is ready.")
+            
             
             
 if __name__ == "__main__":
