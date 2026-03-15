@@ -52,6 +52,9 @@ from correlation_lasers_config import CorrelationLasersConfig
 from correlation_lasers_runner import CorrelationLasersRunner
 from correlation_lasers_compare import CorrelationLasersCompare
 
+# ==========================================================
+# INFORMATIONAL ANALYSIS  (from Modulos Python)
+# ==========================================================
 
 
 from informational_config import (
@@ -68,6 +71,31 @@ from bins_health_report import (
     BinsHealthPolicy,
     evaluate_bins_health,
     print_bins_health_report,
+)
+
+from informational_states import (
+    StatesPolicy,
+    build_states_from_bins,
+)
+
+from state_forma import (
+    FormaPolicy,
+    run_state_forma,
+)
+
+from state_movimiento import (
+    MovimientoPolicy,
+    run_state_movimiento,
+)
+
+from state_energia import (
+    EnergiaPolicy,
+    run_state_energia,
+)
+
+from state_fourier import (
+    FourierPolicy,
+    run_state_fourier,
 )
 
 # ==========================================================
@@ -122,6 +150,64 @@ INFORMATIONAL_BINS_HEALTH_VERBOSE = True
 INFORMATIONAL_BINS_HEALTH_SCAN_PARQUETS = True
 INFORMATIONAL_BINS_HEALTH_SAMPLE_N = 30
 INFORMATIONAL_BINS_HEALTH_ROW_CAP = 200_000
+
+
+
+# ==========================================================
+# INFORMATIONAL STATES PARAMETERS (EDIT HERE)
+# ==========================================================
+INFORMATIONAL_STATES_ENABLED = True
+INFORMATIONAL_STATES_VERBOSE = True
+
+INFORMATIONAL_STATES_LOG_BASE = 2.0
+INFORMATIONAL_STATES_REMOVE_DC = True
+INFORMATIONAL_STATES_PARQUET_ENGINE = "auto"
+INFORMATIONAL_STATES_PREFER_COLUMN_READ = True
+
+INFORMATIONAL_STATES_ESTIMATE_FS_IF_MISSING = False
+INFORMATIONAL_STATES_REQUIRE_SPECTRAL = False
+INFORMATIONAL_STATES_COUPLING_REQUIRED = False
+
+INFORMATIONAL_STATES_PMF_BATCH_ROWS = 250_000
+INFORMATIONAL_STATES_MAX_ROWS_PER_PARQUET = None
+
+INFORMATIONAL_STATES_EPS = 1e-120
+
+
+# ==========================================================
+# STATE FORMA PARAMETERS (EDIT HERE)
+# ==========================================================
+STATE_FORMA_ENABLED = True
+STATE_FORMA_VERBOSE = True
+
+# ==========================================================
+# STATE MOVIMIENTO PARAMETERS (EDIT HERE)
+# ==========================================================
+STATE_MOVIMIENTO_ENABLED = True
+STATE_MOVIMIENTO_VERBOSE = True
+
+# ==========================================================
+# STATE ENERGIA PARAMETERS (EDIT HERE)
+# ==========================================================
+STATE_ENERGIA_ENABLED = True
+STATE_ENERGIA_VERBOSE = True
+
+STATE_ENERGIA_WRITE_PSD_CACHE = True
+STATE_ENERGIA_WRITE_BAND_LONG = False
+
+# ==========================================================
+# STATE FOURIER PARAMETERS (EDIT HERE)
+# ==========================================================
+STATE_FOURIER_ENABLED = True
+STATE_FOURIER_VERBOSE = True
+
+STATE_FOURIER_WRITE_PMF_LONG = False
+STATE_FOURIER_PMF_LONG_MAX_MODES = None
+STATE_FOURIER_ALLOW_RAW_FALLBACK = False
+STATE_FOURIER_FMIN = 0.0
+STATE_FOURIER_FMAX = None
+STATE_FOURIER_ALPHA = 0.0
+STATE_FOURIER_ENFORCE_GRID = True
 
 # ==========================================================
 # USER PARAMETERS (EDIT HERE)
@@ -979,6 +1065,226 @@ def main() -> None:
             return
 
         print("[MAIN_V3][NEXT] Level 4C informational bins health is ready.")
+
+    # ------------------------------------------------------
+    # 21) Level 4D — informational states
+    # ------------------------------------------------------
+    if INFORMATIONAL_STATES_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4D: informational states...")
+
+            states_policy = StatesPolicy(
+                log_base=INFORMATIONAL_STATES_LOG_BASE,
+                remove_dc=INFORMATIONAL_STATES_REMOVE_DC,
+                parquet_engine=INFORMATIONAL_STATES_PARQUET_ENGINE,
+                prefer_column_read=INFORMATIONAL_STATES_PREFER_COLUMN_READ,
+                estimate_fs_if_missing=INFORMATIONAL_STATES_ESTIMATE_FS_IF_MISSING,
+                require_spectral=INFORMATIONAL_STATES_REQUIRE_SPECTRAL,
+                coupling_required=INFORMATIONAL_STATES_COUPLING_REQUIRED,
+                pmf_batch_rows=INFORMATIONAL_STATES_PMF_BATCH_ROWS,
+                max_rows_per_parquet=INFORMATIONAL_STATES_MAX_ROWS_PER_PARQUET,
+                eps=INFORMATIONAL_STATES_EPS,
+            )
+
+            states_output_dir = (
+                cfg.target_root
+                / "Reports"
+                / INFORMATIONAL_LEVEL4_FOLDER_NAME
+                / "States"
+            )
+
+            states_artifacts = build_states_from_bins(
+                bins_spec_json=bins_artifacts.bins_spec_json,
+                quality_queue_csv=gate_artifacts.informational_queue_csv,
+                output_dir=states_output_dir,
+                policy=states_policy,
+            )
+
+            print(f"[MAIN_V3][OK] states_summary.csv written to: {states_artifacts.states_summary_csv}")
+            print(f"[MAIN_V3][OK] pmf_long written to: {states_artifacts.pmf_long_path}")
+            print(f"[MAIN_V3][OK] coupling_mi.csv written to: {states_artifacts.coupling_mi_csv}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] Informational states failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4D informational states is ready.")
+    # ------------------------------------------------------
+    # 22) Level 4E — state forma
+    # ------------------------------------------------------
+    if STATE_FORMA_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4E: state forma...")
+
+            forma_policy = FormaPolicy()
+
+            forma_out_dir = (
+                cfg.target_root
+                / "Reports"
+                / INFORMATIONAL_LEVEL4_FOLDER_NAME
+                / "Forma"
+            )
+
+            forma_artifacts = run_state_forma(
+                states_reports_dir=states_artifacts.states_summary_csv.parent,
+                out_dir=forma_out_dir,
+                policy=forma_policy,
+                verbose=STATE_FORMA_VERBOSE,
+            )
+
+            print(f"[MAIN_V3][OK] forma_summary.csv written to: {forma_artifacts.forma_summary_csv}")
+
+            if forma_artifacts.forma_pmf_long_csv is not None:
+                print(f"[MAIN_V3][OK] forma_pmf_long.csv written to: {forma_artifacts.forma_pmf_long_csv}")
+
+            if forma_artifacts.by_jkey_dir is not None:
+                print(f"[MAIN_V3][OK] forma by_jkey dir: {forma_artifacts.by_jkey_dir}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] State FORMA failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4E state forma is ready.")
+
+    # ------------------------------------------------------
+    # 23) Level 4F — state movimiento
+    # ------------------------------------------------------
+    if STATE_MOVIMIENTO_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4F: state movimiento...")
+
+            movimiento_policy = MovimientoPolicy()
+
+            movimiento_out_dir = (
+                cfg.target_root
+                / "Reports"
+                / INFORMATIONAL_LEVEL4_FOLDER_NAME
+                / "Movimiento"
+            )
+
+            movimiento_artifacts = run_state_movimiento(
+                states_reports_dir=states_artifacts.states_summary_csv.parent,
+                out_dir=movimiento_out_dir,
+                policy=movimiento_policy,
+                verbose=STATE_MOVIMIENTO_VERBOSE,
+            )
+
+            print(f"[MAIN_V3][OK] movimiento_summary.csv written to: {movimiento_artifacts.movimiento_summary_csv}")
+
+            if movimiento_artifacts.movimiento_pmf_long_csv is not None:
+                print(f"[MAIN_V3][OK] movimiento_pmf_long.csv written to: {movimiento_artifacts.movimiento_pmf_long_csv}")
+
+            if movimiento_artifacts.by_jkey_dir is not None:
+                print(f"[MAIN_V3][OK] movimiento by_jkey dir: {movimiento_artifacts.by_jkey_dir}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] State MOVIMIENTO failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4F state movimiento is ready.")
+
+    # ------------------------------------------------------
+    # 24) Level 4G — state energia
+    # ------------------------------------------------------
+    if STATE_ENERGIA_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4G: state energia...")
+
+            energia_policy = EnergiaPolicy(
+                #
+                write_psd_cache=STATE_ENERGIA_WRITE_PSD_CACHE,
+            )
+
+            energia_out_dir = (
+                cfg.target_root
+                / "Reports"
+                / INFORMATIONAL_LEVEL4_FOLDER_NAME
+                / "Energia"
+            )
+
+            energia_artifacts = run_state_energia(
+                informational_queue_csv=gate_artifacts.informational_queue_csv,
+                bins_spec_json=bins_artifacts.bins_spec_json,
+                out_dir=energia_out_dir,
+                lasers=tuple(informational_cfg.lasers),
+                mode=informational_cfg.mode,
+                policy=energia_policy,
+                verbose=STATE_ENERGIA_VERBOSE,
+                
+            )
+            
+            print(f"[MAIN_V3][OK] energia_summary.csv written to: {energia_artifacts.energia_summary_csv}")
+
+            if energia_artifacts.psd_cache_dir is not None:
+                print(f"[MAIN_V3][OK] energia psd_cache dir: {energia_artifacts.psd_cache_dir}")
+
+            if energia_artifacts.by_jkey_dir is not None:
+                print(f"[MAIN_V3][OK] energia by_jkey dir: {energia_artifacts.by_jkey_dir}")
+
+            print(f"[MAIN_V3][OK] energia_run_meta.json written to: {energia_artifacts.run_meta_json}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] State ENERGIA failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4G state energia is ready.")
+
+    # ------------------------------------------------------
+    # 25) Level 4H — state fourier
+    # ------------------------------------------------------
+    if STATE_FOURIER_ENABLED:
+        try:
+            print("[MAIN_V3] Running Level 4H: state fourier...")
+
+            fourier_policy = FourierPolicy(
+                write_pmf_long=STATE_FOURIER_WRITE_PMF_LONG,
+                pmf_long_max_modes=STATE_FOURIER_PMF_LONG_MAX_MODES,
+                allow_raw_fallback=STATE_FOURIER_ALLOW_RAW_FALLBACK,
+                psd_first_required=(not STATE_FOURIER_ALLOW_RAW_FALLBACK),
+                fmin=STATE_FOURIER_FMIN,
+                fmax=STATE_FOURIER_FMAX,
+                alpha=STATE_FOURIER_ALPHA,
+                enforce_freq_grid_consistency=STATE_FOURIER_ENFORCE_GRID,
+            )
+
+            fourier_out_dir = (
+                cfg.target_root
+                / "Reports"
+                / INFORMATIONAL_LEVEL4_FOLDER_NAME
+                / "Fourier"
+            )
+
+            fourier_artifacts = run_state_fourier(
+                informational_queue_csv=gate_artifacts.informational_queue_csv,
+                bins_spec_json=bins_artifacts.bins_spec_json,
+                out_dir=fourier_out_dir,
+                lasers=tuple(informational_cfg.lasers),
+                mode=informational_cfg.mode,
+                policy=fourier_policy,
+                verbose=STATE_FOURIER_VERBOSE,
+            )
+
+            print(f"[MAIN_V3][OK] fourier_summary.csv written to: {fourier_artifacts.fourier_summary_csv}")
+
+            if fourier_artifacts.fourier_pmf_long_csv is not None:
+                print(f"[MAIN_V3][OK] fourier_pmf_long.csv written to: {fourier_artifacts.fourier_pmf_long_csv}")
+
+            if fourier_artifacts.by_jkey_dir is not None:
+                print(f"[MAIN_V3][OK] fourier by_jkey dir: {fourier_artifacts.by_jkey_dir}")
+
+            print(f"[MAIN_V3][OK] fourier_run_meta.json written to: {fourier_artifacts.run_meta_json}")
+
+        except Exception as e:
+            print("[MAIN_V3][ERROR] State FOURIER failed.")
+            print(f"[MAIN_V3][ERROR] {type(e).__name__}: {e}")
+            return
+
+        print("[MAIN_V3][NEXT] Level 4H state fourier is ready.")        
+        
             
             
             
